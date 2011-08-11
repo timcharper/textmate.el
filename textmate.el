@@ -133,7 +133,11 @@ the project root and will be surrounded by double-quotes.")
      (define-key map (kbd "M-<up>") 'textmate-column-up)
      (define-key map (kbd "M-<down>") 'textmate-column-down)
      (define-key map (kbd "M-S-<up>") 'textmate-column-up-with-select)
-     (define-key map (kbd "M-S-<down>") 'textmate-column-down-with-select))
+     (define-key map (kbd "M-S-<down>") 'textmate-column-down-with-select)
+     (define-key map (kbd "<C-s-down>") 'textmate-swap-lines-or-move-region-down)
+     (define-key map (kbd "<C-s-up>") 'textmate-swap-lines-or-move-region-up)
+     (define-key map (kbd "<C-s-left>") 'textmate-move-region-left)
+     (define-key map (kbd "<C-s-right>") 'textmate-move-region-right))
     ((and (featurep 'mac-carbon) (eq window-system 'mac) mac-key-mode)
      (define-key map [(alt meta return)] 'textmate-next-line)
      (define-key map [(alt meta t)] 'textmate-clear-cache)
@@ -148,7 +152,11 @@ the project root and will be surrounded by double-quotes.")
      (define-key map [(alt up)] 'textmate-column-up)
      (define-key map [(alt down)] 'textmate-column-down)
      (define-key map [(alt shift up)] 'textmate-column-up-with-select)
-     (define-key map [(alt shift down)] 'textmate-column-down-with-select))
+     (define-key map [(alt shift down)] 'textmate-column-down-with-select)
+     (define-key map [(control super down)] 'textmate-swap-lines-or-move-region-down)
+     (define-key map [(control super up)] 'textmate-swap-lines-or-move-region-up)
+     (define-key map [(control super left)] 'textmate-move-region-left)
+     (define-key map [(control super right)] 'textmate-move-region-right))
     ((featurep 'ns)  ;; Emacs.app
      (define-key map [(super meta return)] 'textmate-next-line)
      (define-key map [(super meta t)] 'textmate-clear-cache)
@@ -163,7 +171,13 @@ the project root and will be surrounded by double-quotes.")
      (define-key map [(meta up)] 'textmate-column-up)
      (define-key map [(meta down)] 'textmate-column-down)
      (define-key map [(meta shift up)] 'textmate-column-up-with-select)
-     (define-key map [(meta shift down)] 'textmate-column-down-with-select))
+     (define-key map [(meta shift down)] 'textmate-column-down-with-select)
+     (define-key map [(control super down)] 'textmate-swap-lines-or-move-region-down)
+     (define-key map [(control super up)] 'textmate-swap-lines-or-move-region-up)
+     (define-key map [(control super left)] 'textmate-move-region-left)
+     (define-key map [(control super right)] 'textmate-move-region-right))
+
+
     (t ;; Any other version
      (define-key map [(meta return)] 'textmate-next-line)
      (define-key map [(control c)(control t)] 'textmate-clear-cache)
@@ -177,7 +191,11 @@ the project root and will be surrounded by double-quotes.")
      (define-key map [(alt up)] 'textmate-column-up)
      (define-key map [(alt down)] 'textmate-column-down)
      (define-key map [(alt shift up)] 'textmate-column-up-with-select)
-     (define-key map [(alt shift down)] 'textmate-column-down-with-select)))
+     (define-key map [(alt shift down)] 'textmate-column-down-with-select)
+     (define-key map [(control super down)] 'textmate-swap-lines-or-move-region-down)
+     (define-key map [(control super up)] 'textmate-swap-lines-or-move-region-up)
+     (define-key map [(control super left)] 'textmate-move-region-left)
+     (define-key map [(control super right)] 'textmate-move-region-right)))
     map))
 
 (defvar *textmate-project-root* nil
@@ -396,11 +414,13 @@ Symbols matching the text at point are put first in the completion list."
 (defun textmate-find-project-root (&optional root)
   "Determines the current project root by recursively searching for an indicator."
   (when (null root) (setq root default-directory))
-  (cond
-   ((root-matches root textmate-project-roots)
-    (expand-file-name root))
-   ((equal (expand-file-name root) "/") nil)
-   (t (textmate-find-project-root (concat (file-name-as-directory root) "..")))))
+  (condition-case nil
+      (cond
+       ((root-matches root textmate-project-roots)
+        (expand-file-name root))
+       ((equal (expand-file-name root) "/") nil)
+       (t (textmate-find-project-root (concat (file-name-as-directory root) ".."))))
+    (error nil)))
 
 (defun textmate-shift-right (&optional arg)
   "Shift the line or region to the ARG places to the right.
@@ -472,6 +492,76 @@ A place is considered `tab-width' character columns."
   (unless mark-active (progn (push-mark (point))
                              (setq mark-active t transient-mark-mode t)))
   (let (deactivate-mark) (textmate-column-down arg)))
+
+
+(defun textmate-swap-lines (dir)
+  "move the current line down one"
+  (move-to-column 0)
+  (let* ((beg (point))
+         (end (save-excursion
+                (forward-line)
+                (point)))
+         (text (filter-buffer-substring beg end t)))
+    (forward-line dir)
+    (insert text)))
+
+(defun textmate-move-selection-vertical (dir)
+  "moves the selection vertically up"
+  (let* (deactivate-mark
+         (beg (region-beginning))
+         (end (region-end))
+         (goal-column (save-excursion
+                        (goto-char beg)
+                        (current-column)))
+         (text (filter-buffer-substring beg end t)))
+    (forward-line dir)
+    (move-to-column goal-column)
+
+    (let ((new-region-beginning (point)))
+      (insert text)
+      (push-mark new-region-beginning)
+      (setq mark-active t
+            transient-mark-mode t))))
+
+(defun textmate-move-region (dir)
+  "Move region to the left or right"
+  (let* (deactivate-mark
+         (beg (region-beginning))
+         (end (region-end))
+         (left? (equal (point) (region-beginning)))
+         (text (filter-buffer-substring beg end t)))
+    (goto-char (+ dir beg))
+    (push-mark (point))
+    (insert text)
+    (setq mark-active t
+            transient-mark-mode t)
+    (when left? (exchange-point-and-mark))))
+
+(defun textmate-move-region-right ()
+  "move the current line down one"
+  (interactive)
+  (when mark-active
+    (textmate-move-region 1)))
+
+(defun textmate-move-region-left ()
+  "move the current line down one"
+  (interactive)
+  (when mark-active
+    (textmate-move-region -1)))
+
+(defun textmate-swap-lines-or-move-region-up ()
+  "move the current line down one"
+  (interactive)
+  (if mark-active
+      (textmate-move-selection-vertical -1)
+    (textmate-swap-lines -1)))
+
+(defun textmate-swap-lines-or-move-region-down ()
+  "move the current line down one"
+  (interactive)
+    (if mark-active
+      (textmate-move-selection-vertical 1)
+    (textmate-swap-lines 1)))
 
 ;;;###autoload
 (define-minor-mode textmate-mode "TextMate Emulation Minor Mode"
